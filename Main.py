@@ -296,8 +296,8 @@ def analysis(action_rules,assessment_rules,donor_obs, error, q, epsilon ,N, p_in
         proba_C = calculate_proba_C(action_rules).subs([(p_i,p_ii),(p_j,p_ik)]).subs(p_j,p_ik)
         if error == "action":
             proba_C = (1 - epsilon) * proba_C + epsilon * (1 - proba_C) - epsilon * proba_C
-        freq_G_in_ik = assessment_if_C * (proba_C * (1 - epsilon) + (1 - proba_C) * epsilon) + \
-                       assessment_if_D * (proba_C * epsilon + (1 - proba_C) * (1 - epsilon))
+        freq_G_in_ik = assessment_if_C * proba_C + \
+                       assessment_if_D * (1 - proba_C)
         if error == "assessment":
             freq_G_in_ik = freq_G_in_ik*(1-epsilon) + epsilon * (1-p_i) - epsilon * p_i
 
@@ -405,8 +405,8 @@ def ESS_analysis(action_rules_r,assessment_rules_r,p_rr,action_rules_m, assessme
 
 
     # Calcul of equation of resident on mutant p_mr
-    freq_G_in_mr = assessment_if_C_r * proba_C_m.subs(p_j,p_rm) + \
-                   assessment_if_D_r * (1 - proba_C_m.subs(p_j,p_rm))
+    freq_G_in_mr = assessment_if_C_r * proba_C_m + \
+                   assessment_if_D_r * (1 - proba_C_m)
     if error == "assessment":
         freq_G_in_mr = freq_G_in_mr * (1-epsilon) + epsilon * (1-p_i) - epsilon * p_i
     freq_G_in_mr = sym.expand(freq_G_in_mr.subs([(p_i, p_mr), (p_j, p_rr)]))
@@ -414,8 +414,8 @@ def ESS_analysis(action_rules_r,assessment_rules_r,p_rr,action_rules_m, assessme
     difference_equa_p_mr = recursion_equa_p_mr - p_mr
 
     #We could solve this one directly
-    freq_G_in_rm = assessment_if_C_m * proba_C_r.subs(p_j,p_rr) + \
-                   assessment_if_D_m * (1 - proba_C_r.subs(p_j,p_rr))
+    freq_G_in_rm = assessment_if_C_m * proba_C_r + \
+                   assessment_if_D_m * (1 - proba_C_r)
     if error == "assessment":
         freq_G_in_rm = freq_G_in_rm * (1-epsilon) + epsilon * (1-p_i) - epsilon * p_i
     freq_G_in_rm = sym.expand(freq_G_in_rm.subs([(p_i, p_rm), (p_j, p_rr)]))
@@ -479,8 +479,7 @@ def sweep_ESS_analysis(input_file,benefit,cost):
                                p_ini = parameters_input_file["p_ini"],
                                benefit = benefit,cost = cost)
             list_res.append(res)
-    if index_r%10 == 0:
-        print(index_r/len(dt_analytic.index))
+    print(index_r/len(dt_analytic.index))
     dt = pd.DataFrame.from_dict(list_res)
     name_file = "ESS-" + parameters_to_string(parameters_input_file, []) + "-ben=" + str(benefit) + "-cost=" + str(cost) + ".csv"
     dt.to_csv(name_file)
@@ -632,8 +631,12 @@ def sweep_simulations(input_file,  N_gen, N_print, N_simul, write):
 #                   action_rules_m=sym.Matrix([1,1]),assessment_rules_m=sym.Matrix([1,1,1,1,0,0,0,1]),
 #             donor_obs=False,error="assessment",p_ini=0.5,epsilon=0.01,q=0.1,benefit=1,cost=0))
 
+
 input_file = "analysis-sample=0-seed=1-donor_obs=False-error=action-q=0.05-epsilon=0.05-N=100-p_ini=0.5.csv"
-#sweep_ESS_analysis(input_file = input_file,benefit=2,cost=1)
+sweep_ESS_analysis(input_file = input_file,benefit=2,cost=1)
+
+input_file = "analysis-sample=0-seed=1-donor_obs=False-error=assessment-q=0.05-epsilon=0.05-N=100-p_ini=0.5.csv"
+sweep_ESS_analysis(input_file = input_file,benefit=2,cost=1)
 
 
 # If same strategies
@@ -669,27 +672,28 @@ input_file = "analysis-sample=0-seed=1-donor_obs=False-error=action-q=0.05-epsil
 #                      donor_obs=True, error="assessment",
 #                      q=0.05,epsilon=0.05,N=100,p_ini=0.5)
 
-sweep_rules_analysis(write=True,mirror=False,sample=0,seed=1,
-                     donor_obs=False, error="action",
-                     q=0.05,epsilon=0.05,N=100,p_ini=0.5)
+#sweep_rules_analysis(write=True,mirror=False,sample=0,seed=1,
+#                   donor_obs=False, error="action",
+#                    q=0.05,epsilon=0.05,N=100,p_ini=0.5)
 
-sweep_rules_analysis(write=True,mirror=False,sample=0,seed=1,
-                      donor_obs=False, error="assessment",
-                      q=0.05,epsilon=0.05,N=100,p_ini=0.5)
+#sweep_rules_analysis(write=True,mirror=False,sample=0,seed=1,
+#                      donor_obs=False, error="assessment",
+#                      q=0.05,epsilon=0.05,N=100,p_ini=0.5)
+
 
 #---------------------------------------For simulations across a list of strategies-----------------------------------------
 start_time = time.time()
 input_file = "analysis-sample=100-seed=1-donor_obs=True-error=action-q=0.05-epsilon=0.05-N=100-p_ini=0.5.csv"
-#sweep_simulations(input_file=input_file, N_gen=300000, N_print=200000, N_simul=5 , write=True)
+#sweep_simulations(input_file=input_file, N_gen=250000, N_print=200000, N_simul=5 , write=True)
 print("Execution time = " + str((time.time() - start_time)/60))
 input_file = "analysis-sample=100-seed=1-donor_obs=True-error=assessment-q=0.05-epsilon=0.05-N=100-p_ini=0.5.csv"
-#sweep_simulations(input_file=input_file, N_gen=300000, N_print=200000, N_simul=5 , write=True)
+#sweep_simulations(input_file=input_file, N_gen=250000, N_print=200000, N_simul=5 , write=True)
 print("Execution time = " + str((time.time() - start_time)/60))
 input_file = "analysis-sample=100-seed=1-donor_obs=False-error=action-q=0.05-epsilon=0.05-N=100-p_ini=0.5.csv"
-#sweep_simulations(input_file=input_file, N_gen=300000, N_print=200000, N_simul=5 , write=True)
+#sweep_simulations(input_file=input_file, N_gen=250000, N_print=200000, N_simul=5 , write=True)
 print("Execution time = " + str((time.time() - start_time)/60))
 input_file = "analysis-sample=100-seed=1-donor_obs=False-error=assessment-q=0.05-epsilon=0.05-N=100-p_ini=0.5.csv"
-#sweep_simulations(input_file=input_file, N_gen=300000, N_print=200000, N_simul=5 , write=True)
+#sweep_simulations(input_file=input_file, N_gen=250000, N_print=200000, N_simul=5 , write=True)
 print("Execution time = " + str((time.time() - start_time)/60))
 
 
