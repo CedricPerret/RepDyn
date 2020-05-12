@@ -161,6 +161,38 @@ def calculate_freq_G_in_observers(assessment_rules,proba_C):
     p_D_prime = (proba_tree * assessment_rules_C)[0, 0] * proba_C + (proba_tree * assessment_rules_D)[0, 0] * (1-proba_C)
     return(sym.expand(p_D_prime))
 
+def calculate_possible_rules(mirror,donor_obs,sample,seed):
+    # All possible rules
+    if donor_obs == True:
+        possible_action_rules = list(map(np.array, itertools.product([1, 0], repeat=4)))
+    elif donor_obs == False:
+        possible_action_rules = list(map(np.array, itertools.product([1, 0], repeat=2)))
+    possible_assessment_rules = list(map(np.array, itertools.product([1, 0], repeat=8)))
+
+    if mirror == True:
+        possible_rules = list(map(list, itertools.product(possible_action_rules, possible_assessment_rules)))
+    if mirror == False:
+        # We keep one strategy as AllC and AllD because the different assessment rules are irrelevant
+        possible_rules = list(map(list, itertools.product(
+            [e for e in possible_action_rules if sum(e) != 0 and sum(e) != len(possible_action_rules[0])],
+            possible_assessment_rules)))
+        possible_rules.append([np.ones(len(possible_action_rules[0]), dtype=np.int32), np.ones(8, dtype=np.int32)])
+        possible_rules.append([np.zeros(len(possible_action_rules[0]), dtype=np.int32), np.zeros(8, dtype=np.int32)])
+        # We remove the mirror image if mirror image is False
+        # We can remove in the loop because the mirror image is always after
+        for i, rule_1 in enumerate(possible_rules):
+            for j, rule_2 in enumerate(possible_rules):
+                if (rule_2[0] == rule_1[0][::-1]).all() and (rule_2[1] == 1 - rule_1[1]).all():
+                    possible_rules.pop(j)
+            if i % 100 == 0:
+                print("Removing mirror images : ", (i / len(possible_rules)))
+
+    # If sample size provided, we sample number of strategies
+    if sample != 0:
+        random.seed(seed)
+        possible_rules = random.sample(possible_rules, sample)
+    return(possible_rules)
+
 #Dynamic analysis: find equilibrium points (eq points) and stable points
 def dynamic_analysis(difference_equations, variables, variables_ini,lower_bound,upper_bound):
 
@@ -263,27 +295,30 @@ def analysis(action_rules,assessment_rules,donor_obs, error, q, epsilon ,N, p_in
     if donor_obs == True:
         variables = [p_ii,p_ik]
         #Calculate equation for p_ii
-        if error == "assessment":
+        if error == "assessment" or error == "both":
             assessment_rules_ii = sym.matrix_multiply_elementwise(action_rules, assessment_rules_C) + sym.matrix_multiply_elementwise((sym.ones(4, 1) - action_rules), assessment_rules_D)
-            freq_G_in_ii = sym.expand((proba_tree * assessment_rules_ii)[0, 0]) * (1-epsilon) + \
-                            epsilon * (1-p_i) - epsilon * p_i
-        if error == "action":
+            freq_G_in_ii = sym.expand((proba_tree * assessment_rules_ii)[0, 0])
+        if error == "action" or error == "both":
             assessment_rules_ii = sym.matrix_multiply_elementwise(sym.matrix_multiply_elementwise(action_rules,assessment_rules_C),sym.Matrix([1-epsilon,1-epsilon,1-epsilon,1-epsilon])) +\
                                   sym.matrix_multiply_elementwise(sym.matrix_multiply_elementwise(action_rules,assessment_rules_D),sym.Matrix([epsilon,epsilon,epsilon,epsilon]))+ \
                                   sym.matrix_multiply_elementwise(sym.matrix_multiply_elementwise((sym.ones(4, 1) - action_rules), assessment_rules_D),sym.Matrix([1-epsilon,1-epsilon,1-epsilon,1-epsilon]))+\
                                   sym.matrix_multiply_elementwise(sym.matrix_multiply_elementwise((sym.ones(4, 1) - action_rules), assessment_rules_C),sym.Matrix([epsilon,epsilon,epsilon,epsilon]))
             freq_G_in_ii = sym.expand((proba_tree * assessment_rules_ii)[0, 0])
 
+        if error == "assessment" or error == "both":
+            freq_G_in_ii = freq_G_in_ii * (1-epsilon) + \
+                            epsilon * (1-p_i)
+
         freq_G_in_ii = sym.expand(freq_G_in_ii.subs([(p_i,p_ii),(p_j,p_ik)]))
         recursion_equa_p_ii = p_ii + q * (freq_G_in_ii - p_ii)
         difference_equa_p_ii = recursion_equa_p_ii - p_ii
         #Calculate equation for p_ik
         proba_C = calculate_proba_C(action_rules).subs([(p_i,p_ii),(p_j,p_ik)])
-        if error == "action":
+        if error == "action" or error == "both":
             proba_C = (1-epsilon)*proba_C + epsilon * (1-proba_C) - epsilon*proba_C
         freq_G_in_ik = assessment_if_C * proba_C + assessment_if_D * (1 - proba_C)
-        if error == "assessment":
-            freq_G_in_ik = freq_G_in_ik*(1-epsilon) + epsilon * (1-p_i) - epsilon * p_i
+        if error == "assessment" or error == "both":
+            freq_G_in_ik = freq_G_in_ik*(1-epsilon) + epsilon * (1-p_i)
         freq_G_in_ik = sym.expand(freq_G_in_ik.subs([(p_i,p_ik),(p_j,p_ik)]))
         recursion_equa_p_ik= p_ik + q*(freq_G_in_ik - p_ik)
         difference_equa_p_ik = recursion_equa_p_ik - p_ik
@@ -294,12 +329,12 @@ def analysis(action_rules,assessment_rules,donor_obs, error, q, epsilon ,N, p_in
     elif donor_obs == False:
         variables=[p_ik]
         proba_C = calculate_proba_C(action_rules).subs([(p_i,p_ii),(p_j,p_ik)]).subs(p_j,p_ik)
-        if error == "action":
+        if error == "action" or error == "both":
             proba_C = (1 - epsilon) * proba_C + epsilon * (1 - proba_C) - epsilon * proba_C
         freq_G_in_ik = assessment_if_C * proba_C + \
                        assessment_if_D * (1 - proba_C)
-        if error == "assessment":
-            freq_G_in_ik = freq_G_in_ik*(1-epsilon) + epsilon * (1-p_i) - epsilon * p_i
+        if error == "assessment" or error == "both":
+            freq_G_in_ik = freq_G_in_ik*(1-epsilon) + epsilon * (1-p_i)
 
         freq_G_in_ik = sym.expand(freq_G_in_ik.subs([(p_i,p_ik),(p_j,p_ik)]))
         recursion_equa_p_ik = p_ik + q*(freq_G_in_ik - p_ik)
@@ -339,33 +374,8 @@ def sweep_rules_analysis(write,mirror,sample,seed,donor_obs, error, q , epsilon,
         args, _, _, values = inspect.getargvalues(frame)
         parameters = parameters_to_string(values, ["write", "frame","mirror"])
         name_file = "analysis-" + parameters + ".csv"
-    #All possible rules
-    if donor_obs == True:
-        possible_action_rules = list(map(np.array, itertools.product([1, 0], repeat=4)))
-    elif donor_obs == False:
-        possible_action_rules = list(map(np.array, itertools.product([1, 0], repeat=2)))
-    possible_assessment_rules = list(map(np.array, itertools.product([1, 0], repeat=8)))
+    possible_rules = calculate_possible_rules(mirror,donor_obs,sample,seed)
 
-    if mirror == True:
-        possible_rules = list(map(list,itertools.product(possible_action_rules,possible_assessment_rules)))
-    if mirror == False:
-        # We keep one strategy as AllC and AllD because the different assessment rules are irrelevant
-        possible_rules = list(map(list, itertools.product([e for e in possible_action_rules if sum(e)!=0 and sum(e)!=len(possible_action_rules[0])], possible_assessment_rules)))
-        possible_rules.append([np.ones(len(possible_action_rules[0]),dtype=np.int32),np.ones(8,dtype=np.int32)])
-        possible_rules.append([np.zeros(len(possible_action_rules[0]),dtype=np.int32), np.zeros(8,dtype=np.int32)])
-    #We remove the mirror image if mirror image is False
-    #We can remove in the loop because the mirror image is always after
-        for i, rule_1  in enumerate(possible_rules):
-            for j, rule_2 in enumerate(possible_rules):
-                if (rule_2[0] == rule_1[0][::-1]).all() and (rule_2[1] == 1 - rule_1[1]).all():
-                    possible_rules.pop(j)
-            if i%100 == 0:
-                print("Removing mirror images : ", (i / len(possible_rules)))
-
-    #If sample size provided, we sample number of strategies
-    if sample != 0 :
-        random.seed(seed)
-        possible_rules = random.sample(possible_rules, sample)
     #Analysis for each rule
     list_res=[]
     for i, rule in enumerate(possible_rules):
@@ -388,7 +398,7 @@ def ESS_analysis(action_rules_r,assessment_rules_r,p_rr,action_rules_m, assessme
     variables = [p_mr,p_rm]
     proba_C_m = calculate_proba_C(action_rules_m)
     proba_C_r = calculate_proba_C(action_rules_r)
-    if error == "action":
+    if error == "action" or error == "both":
         proba_C_m = (1-epsilon)*proba_C_m + epsilon*(1-proba_C_m) - epsilon*proba_C_m
         proba_C_r = (1-epsilon)*proba_C_r + epsilon*(1-proba_C_r) - epsilon*proba_C_r
 
@@ -402,23 +412,21 @@ def ESS_analysis(action_rules_r,assessment_rules_r,p_rr,action_rules_m, assessme
     assessment_if_C_r = calculate_proba_assessment(assessment_rules_C_r)
     assessment_if_D_r = calculate_proba_assessment(assessment_rules_D_r)
 
-
-
     # Calcul of equation of resident on mutant p_mr
     freq_G_in_mr = assessment_if_C_r * proba_C_m + \
                    assessment_if_D_r * (1 - proba_C_m)
-    if error == "assessment":
-        freq_G_in_mr = freq_G_in_mr * (1-epsilon) + epsilon * (1-p_i) - epsilon * p_i
-    freq_G_in_mr = sym.expand(freq_G_in_mr.subs([(p_i, p_mr), (p_j, p_rr)]))
+    if error == "assessment" or error == "both":
+        freq_G_in_mr = freq_G_in_mr * (1-epsilon) + epsilon * (1-p_i)
+    freq_G_in_mr = freq_G_in_mr.subs([(p_i, p_mr), (p_j, p_rr)])
     recursion_equa_p_mr = p_mr + q * (freq_G_in_mr - p_mr)
     difference_equa_p_mr = recursion_equa_p_mr - p_mr
 
     #We could solve this one directly
     freq_G_in_rm = assessment_if_C_m * proba_C_r + \
                    assessment_if_D_m * (1 - proba_C_r)
-    if error == "assessment":
-        freq_G_in_rm = freq_G_in_rm * (1-epsilon) + epsilon * (1-p_i) - epsilon * p_i
-    freq_G_in_rm = sym.expand(freq_G_in_rm.subs([(p_i, p_rm), (p_j, p_rr)]))
+    if error == "assessment" or error == "both":
+        freq_G_in_rm = freq_G_in_rm * (1-epsilon) + epsilon * (1-p_i)
+    freq_G_in_rm = freq_G_in_rm.subs([(p_i, p_rm), (p_j, p_rr)])
     recursion_equa_p_rm = p_rm + q * (freq_G_in_rm - p_rm)
     difference_equa_p_rm = recursion_equa_p_rm - p_rm
 
@@ -479,7 +487,7 @@ def sweep_ESS_analysis(input_file,benefit,cost):
                                p_ini = parameters_input_file["p_ini"],
                                benefit = benefit,cost = cost)
             list_res.append(res)
-    print(index_r/len(dt_analytic.index))
+        print(index_r/len(dt_analytic.index))
     dt = pd.DataFrame.from_dict(list_res)
     name_file = "ESS-" + parameters_to_string(parameters_input_file, []) + "-ben=" + str(benefit) + "-cost=" + str(cost) + ".csv"
     dt.to_csv(name_file)
@@ -526,7 +534,7 @@ def simulation_detailed(action_rules, assessment_rules, donor_obs, error,N, N_ge
             donor_action = action_rules_simul[M_opinions[donor,donor],M_opinions[donor,recipient]]
         elif donor_obs == False:
             donor_action = action_rules_simul[M_opinions[donor,recipient]]
-        if error == "action":
+        if error == "action" or error == "both":
             if random.random() < epsilon:
                 donor_action = 1-donor_action
         #Writing action
@@ -541,7 +549,7 @@ def simulation_detailed(action_rules, assessment_rules, donor_obs, error,N, N_ge
                     continue
             #Update opinion with some probability as a function of assessment rules and the action of the donor
             if random.random() < q:
-                if error == "assessment":
+                if error == "assessment" or error == "both":
                     if random.random() < epsilon:
                         M_opinions[j, donor] = 1 - M_opinions[j, donor]
                     else:
@@ -620,7 +628,7 @@ def sweep_simulations(input_file,  N_gen, N_print, N_simul, write):
     dt_simul=pd.DataFrame.from_dict(list_res)
     dt_res = pd.concat((dt_analytic,dt_simul),axis=1)
     if write == True:
-        name_file = "simul-" + parameters_to_string(parameters_input_file,[]) + "-N_gen=" + str(N_gen) + "-N_print=" + str(N_print) + "-N_simul=" + str(N_simul) + ".csv"
+        name_file = "simul-" + parameters_to_string(parameters_input_file,[]) + "-gen=" + str(N_gen/1000) + "k" + "-print=" + str(N_print/1000) + "k" + "-S=" + str(N_simul) + ".csv"
         dt_res.to_csv(name_file)
     return(dt_res)
 
@@ -633,10 +641,11 @@ def sweep_simulations(input_file,  N_gen, N_print, N_simul, write):
 
 
 input_file = "analysis-sample=0-seed=1-donor_obs=False-error=action-q=0.05-epsilon=0.05-N=100-p_ini=0.5.csv"
-sweep_ESS_analysis(input_file = input_file,benefit=2,cost=1)
+#sweep_ESS_analysis(input_file = input_file,benefit=2,cost=1)
 
-input_file = "analysis-sample=0-seed=1-donor_obs=False-error=assessment-q=0.05-epsilon=0.05-N=100-p_ini=0.5.csv"
-sweep_ESS_analysis(input_file = input_file,benefit=2,cost=1)
+input_file = "analysis-sample=0-seed=1-donor_obs=False-error=assessment-q=0.05-epsilon=0.005-N=100-p_ini=0.5.csv"
+#sweep_ESS_analysis(input_file = input_file,benefit=2,cost=1)
+#sweep_ESS_analysis(input_file = input_file,benefit=5,cost=1)
 
 
 # If same strategies
@@ -647,8 +656,8 @@ sweep_ESS_analysis(input_file = input_file,benefit=2,cost=1)
 
 
 
-#print(simulation_detailed(N=100,N_gen=500000,q=0.05,epsilon=0.05,p_ini=0.5,
-#    action_rules = np.array([0,1,0,0]),assessment_rules=np.array([0,1,0,0,1,1,1,0]),donor_obs=True,plot=True,error="action",detail=0,N_print=300000))
+#print(simulation_detailed(N=100,N_gen=100000,q=0.8,epsilon=0.8,p_ini=0.33,
+#    action_rules = np.array([1,0]),assessment_rules=np.array([1,0,1,0,1,0,1,0]),donor_obs=False,plot=True,error="assessment",detail=0,N_print=00))
 
 #----------------------To compare the results across different values of parameterrs-----------------------------------------
 
@@ -666,19 +675,25 @@ sweep_ESS_analysis(input_file = input_file,benefit=2,cost=1)
 #sweep_rules_analysis(write=True,mirror=False,sample=100,seed=1,
 #                   donor_obs=True, error="action",
 #                   q=0.05,epsilon=0.05,N=100,p_ini=0.5)
-#
-#
+
+
 #sweep_rules_analysis(write=True,mirror=False,sample=100,seed=1,
 #                      donor_obs=True, error="assessment",
 #                      q=0.05,epsilon=0.05,N=100,p_ini=0.5)
 
-#sweep_rules_analysis(write=True,mirror=False,sample=0,seed=1,
+#sweep_rules_analysis(write=True,mirror=False,sample=100,seed=1,
 #                   donor_obs=False, error="action",
 #                    q=0.05,epsilon=0.05,N=100,p_ini=0.5)
 
-#sweep_rules_analysis(write=True,mirror=False,sample=0,seed=1,
+#sweep_rules_analysis(write=True,mirror=False,sample=100,seed=1,
 #                      donor_obs=False, error="assessment",
 #                      q=0.05,epsilon=0.05,N=100,p_ini=0.5)
+
+#sweep_rules_analysis(write=True,mirror=False,sample=100,seed=1,
+#                      donor_obs=False, error="both",
+#                      q=0.05,epsilon=0.05,N=100,p_ini=0.5)
+
+
 
 
 #---------------------------------------For simulations across a list of strategies-----------------------------------------
@@ -695,7 +710,9 @@ print("Execution time = " + str((time.time() - start_time)/60))
 input_file = "analysis-sample=100-seed=1-donor_obs=False-error=assessment-q=0.05-epsilon=0.05-N=100-p_ini=0.5.csv"
 #sweep_simulations(input_file=input_file, N_gen=250000, N_print=200000, N_simul=5 , write=True)
 print("Execution time = " + str((time.time() - start_time)/60))
-
+input_file = "analysis-sample=100-seed=1-donor_obs=False-error=both-q=0.05-epsilon=0.05-N=100-p_ini=0.5.csv"
+sweep_simulations(input_file=input_file, N_gen=2500, N_print=2000, N_simul=5 , write=True)
+print("Execution time = " + str((time.time() - start_time)/60))
 
 
 
