@@ -86,12 +86,18 @@ p_ik = sym.Symbol('p_ik')
 p_j = sym.Symbol('p_j')
 p_mr = sym.Symbol('p_mr')
 p_rm = sym.Symbol('p_rm')
+p_L = sym.Symbol("p_L")
+p_noL = sym.Symbol("p_noL")
 
 #Parameters
 #Error rate
 epsilon = sym.Symbol("epsilon")
 #Proportion of observers
 q = sym.Symbol("q")
+#benefit of coop
+b = sym.Symbol("b")
+#cost of coop
+c = sym.Symbol("c")
 
 #Generic symbol, in case it is needed
 x = sym.Symbol('x')
@@ -218,20 +224,26 @@ def dynamic_analysis(difference_equations, variables, variables_ini,lower_bound,
                         i[v] = i[v].subs(i)
         # We identify the realisable equilibrium points which are not (i) complex numbers and (ii) inside of the definition domain [0,1]
         for i in eq_points_theoretical:
-            if all(sym.re(j) >= lower_bound and sym.re(j) <= upper_bound and np.abs(sym.im(j)) < 0.001 for j in i.values()):
-                set_eq_points= {k: sym.re(v) for k, v in i.items()}
+            print(i)
+            if all(sym.re(j) >= lower_bound and sym.re(j) <= upper_bound and np.abs(sym.im(j.evalf())) < 0.001 for j in i.values()):
+                set_eq_points= {k: (sym.re(v)).evalf() for k, v in i.items()}
                 eq_points.append(set_eq_points)
 
     #Stability analysis
     stable_points=[]
     unstable_points=[]
-    matrix_recursion_equa = sym.Matrix([equa+variables[index] for index,equa in enumerate(difference_equations)])
+    #matrix_recursion_equa = sym.Matrix([equa+variables[index] for index,equa in enumerate(difference_equations)])
+    matrix_recursion_equa = sym.Matrix([equa for index,equa in enumerate(difference_equations)])
     matrix_variable = sym.Matrix(variables)
+
     jacobian_matrix = matrix_recursion_equa.jacobian(matrix_variable)
+
     eigenvalues = list(jacobian_matrix.eigenvals().keys())
     for i in eq_points:
         #For floating point error
-        if all(np.abs(sym.sqrt(sym.re(j.subs(i)) ** 2 + sym.im(j.subs(i)) ** 2)) <= 1.00001 for j in eigenvalues):
+        #if all(np.abs(sym.sqrt(sym.re(j.subs(i)) ** 2 + sym.im(j.subs(i)) ** 2)) <= 1.00001 for j in eigenvalues):
+        #if all(sym.sqrt(sym.re(j.subs(i)) ** 2 + sym.im(j.subs(i)) ** 2) <= 0.00000001 for j in eigenvalues):
+        if all(sym.re(j.subs(i)) <= 0.00000001 for j in eigenvalues):
             stable_points.append(i)
         else:
             unstable_points.append(i)
@@ -261,7 +273,7 @@ def dynamic_analysis(difference_equations, variables, variables_ini,lower_bound,
     elif len(stable_points)>1:
         for v_index, v in enumerate(variables):
             #We look at direction at initial conditions
-            if difference_equations[v_index].subs([(e, variables_ini[v_index]) for e in variables]) < 0.00001:
+            if np.abs(difference_equations[v_index].subs([(e, variables_ini[v_index]) for e in variables])) < 0.00000000001:
                 closest_stable_point = 0.5
 
             elif difference_equations[v_index].subs([(e, variables_ini[v_index]) for e in variables]) < 0:
@@ -285,7 +297,7 @@ def dynamic_analysis(difference_equations, variables, variables_ini,lower_bound,
 
 
 #Analysis of a given strategy
-def analysis(action_rules,assessment_rules,donor_obs, error, q, epsilon ,N, p_ini):
+def analysis(action_rules,assessment_rules,donor_obs, q,  eps_a,eps_e ,N, p_ini):
     assessment_rules_C = assessment_rules.extract(range(0,4),[0])
     assessment_rules_D = assessment_rules.extract(range(4, 8),[0])
     # To facilitate solving
@@ -295,31 +307,31 @@ def analysis(action_rules,assessment_rules,donor_obs, error, q, epsilon ,N, p_in
     if donor_obs == True:
         variables = [p_ii,p_ik]
         #Calculate equation for p_ii
-        if error == "assessment" or error == "both":
+        if eps_a != 0:
             assessment_rules_ii = sym.matrix_multiply_elementwise(action_rules, assessment_rules_C) + sym.matrix_multiply_elementwise((sym.ones(4, 1) - action_rules), assessment_rules_D)
             freq_G_in_ii = sym.expand((proba_tree * assessment_rules_ii)[0, 0])
-        if error == "action" or error == "both":
-            assessment_rules_ii = sym.matrix_multiply_elementwise(sym.matrix_multiply_elementwise(action_rules,assessment_rules_C),sym.Matrix([1-epsilon,1-epsilon,1-epsilon,1-epsilon])) +\
-                                  sym.matrix_multiply_elementwise(sym.matrix_multiply_elementwise(action_rules,assessment_rules_D),sym.Matrix([epsilon,epsilon,epsilon,epsilon]))+ \
-                                  sym.matrix_multiply_elementwise(sym.matrix_multiply_elementwise((sym.ones(4, 1) - action_rules), assessment_rules_D),sym.Matrix([1-epsilon,1-epsilon,1-epsilon,1-epsilon]))+\
-                                  sym.matrix_multiply_elementwise(sym.matrix_multiply_elementwise((sym.ones(4, 1) - action_rules), assessment_rules_C),sym.Matrix([epsilon,epsilon,epsilon,epsilon]))
+        if eps_e != 0:
+            assessment_rules_ii = sym.matrix_multiply_elementwise(sym.matrix_multiply_elementwise(action_rules,assessment_rules_C),sym.Matrix([1-eps_e,1-eps_e,1-eps_e,1-eps_e])) +\
+                                  sym.matrix_multiply_elementwise(sym.matrix_multiply_elementwise(action_rules,assessment_rules_D),sym.Matrix([eps_e,eps_e,eps_e,eps_e]))+ \
+                                  sym.matrix_multiply_elementwise(sym.matrix_multiply_elementwise((sym.ones(4, 1) - action_rules), assessment_rules_D),sym.Matrix([1-eps_e,1-eps_e,1-eps_e,1-eps_e]))+\
+                                  sym.matrix_multiply_elementwise(sym.matrix_multiply_elementwise((sym.ones(4, 1) - action_rules), assessment_rules_C),sym.Matrix([eps_e,eps_e,eps_e,eps_e]))
             freq_G_in_ii = sym.expand((proba_tree * assessment_rules_ii)[0, 0])
 
-        if error == "assessment" or error == "both":
-            freq_G_in_ii = freq_G_in_ii * (1-epsilon) + \
-                            epsilon * (1-p_i)
+        if eps_a != 0:
+            freq_G_in_ii = eps_a + (1 - 2 * eps_a) * freq_G_in_ii
 
         freq_G_in_ii = sym.expand(freq_G_in_ii.subs([(p_i,p_ii),(p_j,p_ik)]))
         recursion_equa_p_ii = p_ii + q * (freq_G_in_ii - p_ii)
         difference_equa_p_ii = recursion_equa_p_ii - p_ii
         #Calculate equation for p_ik
         proba_C = calculate_proba_C(action_rules).subs([(p_i,p_ii),(p_j,p_ik)])
-        if error == "action" or error == "both":
-            proba_C = (1-epsilon)*proba_C + epsilon * (1-proba_C)
+        if eps_e != 0:
+            proba_C = (1-eps_e)*proba_C + eps_e * (1-proba_C)
         freq_G_in_ik = assessment_if_C * proba_C + assessment_if_D * (1 - proba_C)
-        if error == "assessment" or error == "both":
-            freq_G_in_ik = freq_G_in_ik*(1-epsilon) + epsilon * (1-p_i)
+        if eps_a != 0:
+            freq_G_in_ik = eps_a + (1 - 2 * eps_a) * freq_G_in_ik
         freq_G_in_ik = sym.expand(freq_G_in_ik.subs([(p_i,p_ik),(p_j,p_ik)]))
+
         recursion_equa_p_ik= p_ik + q*(freq_G_in_ik - p_ik)
         difference_equa_p_ik = recursion_equa_p_ik - p_ik
 
@@ -329,16 +341,17 @@ def analysis(action_rules,assessment_rules,donor_obs, error, q, epsilon ,N, p_in
     elif donor_obs == False:
         variables=[p_ik]
         proba_C = calculate_proba_C(action_rules).subs([(p_i,p_ii),(p_j,p_ik)]).subs(p_j,p_ik)
-        if error == "action" or error == "both":
-            proba_C = (1 - epsilon) * proba_C + epsilon * (1 - proba_C)
+        if  eps_e != 0:
+            proba_C = (1 - eps_e) * proba_C + eps_e * (1 - proba_C)
         freq_G_in_ik = assessment_if_C * proba_C + \
                        assessment_if_D * (1 - proba_C)
-        if error == "assessment" or error == "both":
-            freq_G_in_ik = freq_G_in_ik*(1-epsilon) + epsilon * (1-p_i)
-
+        if eps_a != 0:
+            freq_G_in_ik = eps_a + (1 - 2 * eps_a) * freq_G_in_ik
         freq_G_in_ik = sym.expand(freq_G_in_ik.subs([(p_i,p_ik),(p_j,p_ik)]))
-        recursion_equa_p_ik = p_ik + q*(freq_G_in_ik - p_ik)
-        difference_equa_p_ik = recursion_equa_p_ik - p_ik
+
+        recursion_equa_p_ik = p_ik + (1/(N-1))*q*(freq_G_in_ik - p_ik)
+        #difference_equa_p_ik = recursion_equa_p_ik - p_ik
+        difference_equa_p_ik = freq_G_in_ik - p_ik
         recursion_equa = [sym.expand(recursion_equa_p_ik)]
         difference_equa = [sym.expand(difference_equa_p_ik)]
 
@@ -367,7 +380,7 @@ def analysis(action_rules,assessment_rules,donor_obs, error, q, epsilon ,N, p_in
     return(res)
 
 #Analysis for a list of strategies
-def sweep_analysis(write,sample,seed,donor_obs, error, q , epsilon,N, p_ini):
+def sweep_analysis(write,sample,seed,donor_obs, q , eps_a,eps_e,N, p_ini):
     #Get parameters of the function and put it in the name file
     if write == True:
         frame = inspect.currentframe()
@@ -381,7 +394,7 @@ def sweep_analysis(write,sample,seed,donor_obs, error, q , epsilon,N, p_ini):
     for i, rule in enumerate(possible_rules):
             action_rules = sym.Matrix(rule[0])
             assessment_rules = sym.Matrix(rule[1])
-            res = analysis(action_rules,assessment_rules,donor_obs,error, q , epsilon,N,  p_ini)
+            res = analysis(action_rules,assessment_rules,donor_obs,q, eps_a, eps_e,N,  p_ini)
             list_res.append(res)
             if i%20 == 0:
                 print("Computing equations: ",i / (len(possible_rules)))
@@ -392,15 +405,14 @@ def sweep_analysis(write,sample,seed,donor_obs, error, q , epsilon,N, p_ini):
         return(dt)
 
 #---------------------------------------------Evolutionary dynamics---------------------------------------------------
-def ESS_analysis(action_rules_r,assessment_rules_r,p_rr,action_rules_m, assessment_rules_m,donor_obs,error,q,epsilon,p_ini,benefit,cost):
+def ESS_analysis(action_rules_r,assessment_rules_r,p_rr,action_rules_m, assessment_rules_m,donor_obs,q,eps_a,eps_e,p_ini):
     #Get it from analysis or file directly
     #Be careful, variables need to be in the same order than equations
-    variables = [p_mr,p_rm]
     proba_C_m = calculate_proba_C(action_rules_m)
     proba_C_r = calculate_proba_C(action_rules_r)
-    if error == "action" or error == "both":
-        proba_C_m = (1-epsilon)*proba_C_m + epsilon*(1-proba_C_m)
-        proba_C_r = (1-epsilon)*proba_C_r + epsilon*(1-proba_C_r)
+    if eps_e != 0:
+        proba_C_m = (1-eps_e)*proba_C_m + eps_e*(1-proba_C_m)
+        proba_C_r = (1-eps_e)*proba_C_r + eps_e*(1-proba_C_r)
 
     assessment_rules_C_m = assessment_rules_m.extract(range(0,4),[0])
     assessment_rules_D_m = assessment_rules_m.extract(range(4, 8),[0])
@@ -412,34 +424,38 @@ def ESS_analysis(action_rules_r,assessment_rules_r,p_rr,action_rules_m, assessme
     assessment_if_C_r = calculate_proba_assessment(assessment_rules_C_r)
     assessment_if_D_r = calculate_proba_assessment(assessment_rules_D_r)
 
+
+    #We could solve this one directly
+    freq_G_in_rm = assessment_if_C_m * proba_C_r.subs(p_j,p_rr) + \
+                   assessment_if_D_m * (1 - proba_C_r.subs(p_j,p_rr))
+    if eps_a != 0:
+        freq_G_in_rm = eps_a + (1 - 2 * eps_a) * freq_G_in_rm
+    freq_G_in_rm = freq_G_in_rm.subs([(p_i, p_rm), (p_j, p_rm)])
+    recursion_equa_p_rm = p_rm + q * (freq_G_in_rm - p_rm)
+    difference_equa_p_rm = recursion_equa_p_rm - p_rm
+    analysis_p_rm = dynamic_analysis([difference_equa_p_rm], [p_rm], [p_ini], 0, 1)
+
+
     # Calcul of equation of resident on mutant p_mr
-    freq_G_in_mr = assessment_if_C_r * proba_C_m + \
-                   assessment_if_D_r * (1 - proba_C_m)
-    if error == "assessment" or error == "both":
-        freq_G_in_mr = freq_G_in_mr * (1-epsilon) + epsilon * (1-p_i)
+    freq_G_in_mr = assessment_if_C_r * proba_C_m.subs(p_j,analysis_p_rm[p_rm]) + \
+                   assessment_if_D_r * (1 - proba_C_m.subs(p_j,analysis_p_rm[p_rm]))
+
+    if eps_a != 0:
+        freq_G_in_mr = eps_a + (1 - 2 * eps_a) * freq_G_in_mr
+
     freq_G_in_mr = freq_G_in_mr.subs([(p_i, p_mr), (p_j, p_rr)])
     recursion_equa_p_mr = p_mr + q * (freq_G_in_mr - p_mr)
     difference_equa_p_mr = recursion_equa_p_mr - p_mr
+    analysis_p_mr = dynamic_analysis([difference_equa_p_mr], [p_mr], [p_ini], 0, 1)
 
-    #We could solve this one directly
-    freq_G_in_rm = assessment_if_C_m * proba_C_r + \
-                   assessment_if_D_m * (1 - proba_C_r)
-    if error == "assessment" or error == "both":
-        freq_G_in_rm = freq_G_in_rm * (1-epsilon) + epsilon * (1-p_i)
-    freq_G_in_rm = freq_G_in_rm.subs([(p_i, p_rm), (p_j, p_rr)])
-    recursion_equa_p_rm = p_rm + q * (freq_G_in_rm - p_rm)
-    difference_equa_p_rm = recursion_equa_p_rm - p_rm
 
-    recursion_equa = [recursion_equa_p_mr,recursion_equa_p_rm]
-    difference_equa = [difference_equa_p_mr,difference_equa_p_rm]
-
-    analysis = dynamic_analysis(difference_equa, variables, [p_ini] * len(variables), 0, 1)
-
+    #analysis = dynamic_analysis(difference_equa, variables, [p_ini] * len(variables), 0, 1)
     #Fitness is the proportion of cooperation toward an individual
-    fitness_m = benefit*proba_C_r.subs(p_j,analysis[p_mr]) - cost*proba_C_m.subs(p_j,analysis[p_rm])
-    fitness_r = benefit*proba_C_r.subs(p_j, p_rr) - cost * proba_C_r.subs(p_j, p_rr)
-    #Be careful with float error
-
+    proba_C_mr = proba_C_r.subs(p_j,analysis_p_mr[p_mr])
+    proba_C_rm = proba_C_m.subs(p_j,analysis_p_rm[p_rm])
+    proba_C_rr = proba_C_r.subs(p_j, p_rr)
+    fitness_m = b *proba_C_mr - c *proba_C_rm
+    fitness_r = b *proba_C_rr - c * proba_C_rr
 
 
 
@@ -459,7 +475,9 @@ def ESS_analysis(action_rules_r,assessment_rules_r,p_rr,action_rules_m, assessme
             "action_rules_m": "\"" +  "".join(str(elem) for elem in action_rules_m) + "\"",
             "assessment_rules_m": "\"" +  "".join(str(elem) for elem in assessment_rules_m) + "\"",
             "rules_m": "\"" + "".join(str(elem) for elem in action_rules_m) + "".join(str(elem) for elem in assessment_rules_m) + "\"",
-            "fitness_r":fitness_r, "fitness_m": fitness_m,"diff_fitness": fitness_m - fitness_r}
+            "p_rr": p_rr, "p_mr": analysis_p_mr[p_mr], "p_rm": analysis_p_rm[p_rm],
+            "proba_C_rr": proba_C_rr, "proba_C_mr": proba_C_mr, "proba_C_rm": proba_C_rm,
+            "fitness_r":fitness_r, "fitness_m": fitness_m,"diff_fitness": sym.expand(fitness_m - fitness_r)}
     #To do correlations
     res= {**res, **rules_matrix_to_list(action_rules_r,assessment_rules_r,"r"),**rules_matrix_to_list(action_rules_m,assessment_rules_m,"m")}
 
@@ -468,7 +486,7 @@ def ESS_analysis(action_rules_r,assessment_rules_r,p_rr,action_rules_m, assessme
 
 
 
-def sweep_ESS_analysis(input_file,benefit,cost):
+def sweep_ESS_analysis(input_file):
     dt_analytic = pd.read_csv(input_file)
     parameters_input_file=read_parameters(input_file)
     list_res=[]
@@ -482,14 +500,13 @@ def sweep_ESS_analysis(input_file,benefit,cost):
                                p_rr = row_r["p_ik"],
                                action_rules_m = parse_expr(row_m["action_rules_matrix"]),
                                assessment_rules_m= parse_expr(row_m["assessment_rules_matrix"]),
-                               donor_obs=parameters_input_file["donor_obs"], error = parameters_input_file["error"],
-                               q = parameters_input_file["q"], epsilon = parameters_input_file["epsilon"],
-                               p_ini = parameters_input_file["p_ini"],
-                               benefit = benefit,cost = cost)
+                               donor_obs=parameters_input_file["donor_obs"],
+                               q = parameters_input_file["q"], eps_a = parameters_input_file["eps_a"],eps_e = parameters_input_file["eps_e"],
+                               p_ini = parameters_input_file["p_ini"])
             list_res.append(res)
         print(index_r/len(dt_analytic.index))
     dt = pd.DataFrame.from_dict(list_res)
-    name_file = "ESS-" + parameters_to_string(parameters_input_file, []) + "-ben=" + str(benefit) + "-cost=" + str(cost) + ".csv"
+    name_file = "ESS-" + parameters_to_string(parameters_input_file, []) + ".csv"
     dt.to_csv(name_file)
 
 
@@ -503,7 +520,7 @@ def sweep_ESS_analysis(input_file,benefit,cost):
 
 #Detailed because we simulate explictly opinion (rather than reputation or just using the recursion equation)
 #error is either "action" or "assessment"
-def simulation_detailed(action_rules, assessment_rules, donor_obs, error,N, N_gen, q, epsilon, p_ini, N_print, plot, detail):
+def simulation_detailed(action_rules, assessment_rules, donor_obs, N, N_gen, q, eps_a,eps_e, p_ini, N_print, plot, detail):
     #Initialisation--------------------------------------------------------
     #Initialise the matrix of reputation
     M_opinions = np.ones((N,N),dtype=int)
@@ -534,8 +551,8 @@ def simulation_detailed(action_rules, assessment_rules, donor_obs, error,N, N_ge
             donor_action = action_rules_simul[M_opinions[donor,donor],M_opinions[donor,recipient]]
         elif donor_obs == False:
             donor_action = action_rules_simul[M_opinions[donor,recipient]]
-        if error == "action" or error == "both":
-            if random.random() < epsilon:
+        if eps_e != 0 :
+            if random.random() < eps_e:
                 donor_action = 1-donor_action
         #Writing action
         if i >= N_print:
@@ -545,17 +562,14 @@ def simulation_detailed(action_rules, assessment_rules, donor_obs, error,N, N_ge
         for j in range(N):
             #If donor don't update their opinions
             if donor_obs == False:
-                if j == donor:
+                if j == donor or j == recipient:
                     continue
             #Update opinion with some probability as a function of assessment rules and the action of the donor
             if random.random() < q:
-                if error == "assessment" or error == "both":
-                    if random.random() < epsilon:
+                M_opinions[j, donor] = assessment_rules_simul[donor_action, M_opinions[j, donor], M_opinions[j, recipient]]
+                if eps_a != 0 :
+                    if random.random() < eps_a:
                         M_opinions[j, donor] = 1 - M_opinions[j, donor]
-                    else:
-                        M_opinions[j,donor] = assessment_rules_simul[donor_action,M_opinions[j,donor],M_opinions[j,recipient]]
-                else:
-                    M_opinions[j, donor] = assessment_rules_simul[donor_action, M_opinions[j, donor], M_opinions[j, recipient]]
 
         #Write the reputations
         if i >= N_print:
@@ -589,12 +603,12 @@ def simulation_detailed(action_rules, assessment_rules, donor_obs, error,N, N_ge
     return(res)
 
 
-def simulations_detailed_replicated(action_rules, assessment_rules, donor_obs, error,N, N_gen, q, epsilon, p_ini, N_print, N_simul):
+def simulations_detailed_replicated(action_rules, assessment_rules, donor_obs, N, N_gen, q, eps_a,eps_e, p_ini, N_print, N_simul):
     list_res=[]
     for i in range(N_simul):
         res_single_run = simulation_detailed(action_rules, assessment_rules,
-                                                          donor_obs, error,
-                                                          N, N_gen, q, epsilon, p_ini,
+                                                          donor_obs,
+                                                          N, N_gen, q, eps_a,eps_e, p_ini,
                                                           N_print, False, 0)
         list_res.append(res_single_run)
     dt_by_simul=pd.DataFrame.from_dict(list_res)
@@ -613,8 +627,8 @@ def sweep_simulations(input_file,  N_gen, N_print, N_simul, write):
     for index, row in dt_analytic.iterrows():
         simulations = simulations_detailed_replicated(np.array([int(i) for i in row["action_rules"].replace("\"", "")]),
                                                       np.array([int(i) for i in row["assessment_rules"].replace("\"", "")]),
-                                                      parameters_input_file["donor_obs"],parameters_input_file["error"],
-                                                      parameters_input_file["N"], N_gen, parameters_input_file["q"], parameters_input_file["epsilon"], parameters_input_file["p_ini"],
+                                                      parameters_input_file["donor_obs"],
+                                                      parameters_input_file["N"], N_gen, parameters_input_file["q"], parameters_input_file["eps_a"], parameters_input_file["eps_e"], parameters_input_file["p_ini"],
                                                       N_print,N_simul)
 
         simulations.update({"diff_p_ik": np.abs(row["p_ik"] - simulations["mean_simul_p_ik"])})
@@ -634,23 +648,50 @@ def sweep_simulations(input_file,  N_gen, N_print, N_simul, write):
 
 
 ###==================================================ANALYSIS=======================================================================
-#--------------------------------------Sandbox---------------------------------------------------------
-#print(ESS_analysis(action_rules_r=sym.Matrix([1,0]),assessment_rules_r=sym.Matrix([1,1,1,1,0,1,1,0]),p_rr=0.5,
-#                   action_rules_m=sym.Matrix([1,1]),assessment_rules_m=sym.Matrix([1,1,1,1,0,0,0,1]),
-#             donor_obs=False,error="assessment",p_ini=0.5,epsilon=0.01,q=0.1,benefit=1,cost=0))
-
-
-
-# If same strategies
-
 #----------------------------------For particular strategy------------------------------------------------
 
-#print(analysis(sym.Matrix([1,1]),sym.Matrix([1,1,0,0,1,1,0,0]),False,"action",0.05,0.05,100,0.5))
+#print(analysis(sym.Matrix([1,0]),sym.Matrix([1,1,1,0,0,1,0,0]),False,0.05,0,0,100,0.5))
+#print(analysis(sym.Matrix([1,0]),sym.Matrix([0,0,0,0,0,0,0,1]),False,0.9,0,0,100,0.5))
+
+#For plot-------------------------------------------------------------------------------------
+test=analysis(sym.Matrix([1,0]),sym.Matrix([1,1,1,0,1,1,0,1]),False,0.05,0,0,500,0.5)
+print("test",test)
+recursion_equation = test["recursion_equa"]
+lam_equa_prime_at_eq = sym.lambdify((p_ik), recursion_equation[0])
+plt.subplot(121)
+plt.title('Recursion equation')
+plt.plot(np.arange(0, 1, 0.01), np.arange(0, 1, 0.01), np.arange(0, 1, 0.01),
+         np.vectorize(lam_equa_prime_at_eq)(np.arange(0, 1, 0.01)))
 
 
+difference_equa = test["difference_equa"]
+lam_equa_prime_at_eq = sym.lambdify((p_ik), difference_equa[0])
+plt.subplot(122)
+plt.title('Difference equation')
+plt.plot(np.arange(0, 1, 0.01), np.repeat(0, 100), np.arange(0, 1, 0.01),
+         np.vectorize(lam_equa_prime_at_eq)(np.arange(0, 1, 0.01)))
+plt.show()
 
-#print(simulation_detailed(N=100,N_gen=100000,q=0.8,epsilon=0.8,p_ini=0.1,
-#    action_rules = np.array([1,0]),assessment_rules=np.array([1,1,1,0,0,1,0,0]),donor_obs=False,plot=True,error="assessment",detail=0,N_print=00))
+derivative_difference_equa = sym.diff(difference_equa[0], p_ik)
+print(derivative_difference_equa)
+
+
+#----------------------------------Leading 8-----------------------------------------------------------
+#print(analysis(Leading_one.action_rules,Leading_one.assessment_rules,True,0.05,0.05,0.005,100,0.5))
+#print(analysis(Leading_two.action_rules,Leading_two.assessment_rules,True,0.05,0.05,0.005,100,0.5))
+#print(analysis(Leading_three.action_rules,Leading_three.assessment_rules,True,0.05,0.05,0.005,100,0.5))
+#print(analysis(Leading_four.action_rules,Leading_four.assessment_rules,True,0.05,0.05,0.005,100,0.5))
+#print(analysis(Leading_five.action_rules,Leading_five.assessment_rules,True,0.05,0.05,0.005,100,0.5))
+#print(analysis(Leading_six.action_rules,Leading_six.assessment_rules,True,0.05,0.05,0.005,100,0.5))
+#print(analysis(Leading_seven.action_rules,Leading_seven.assessment_rules,True,0.05,0.05,0.005,100,0.5))
+#print(analysis(Leading_eight.action_rules,Leading_eight.assessment_rules,True,0.05,0.05,0.005,100,0.5))
+
+#print(simulation_detailed(N=300,N_gen=200000,q=0.95,eps_a=0.0,eps_e=0.0,p_ini=0.5,
+#    action_rules = np.array([1,0]),assessment_rules=np.array([1,0,0,1,0,0,1,0]),donor_obs=False,plot=True,detail=0,N_print=00))
+
+#print(ESS_analysis(action_rules_r=sym.Matrix([1,0]),assessment_rules_r=sym.Matrix([1,1,0,1,1,1,0,1]),p_rr=0.99,
+#                   action_rules_m=sym.Matrix([1,1]),assessment_rules_m=sym.Matrix([1,1,1,1,1,1,1,1]),
+#             donor_obs=False,p_ini=0.5,eps_a=0.001,eps_e=0.001,q=0.1))
 
 #----------------------To compare the results across different values of parameterrs-----------------------------------------
 
@@ -660,65 +701,48 @@ def sweep_simulations(input_file,  N_gen, N_print, N_simul, write):
 #         print("epsilon = ", j , end = ' ')
 #         print(simulation_detailed(N=100,N_gen=800000,q=i,epsilon=j,p_ini=0.5,
 #             action_rules = np.array([0,1,0,0]),assessment_rules=np.array([0,1,0,0,1,1,1,0]),donor_obs=True,plot=False,error="action",detail=0,N_print=400000)["p_ik"]-
-#               analysis(sym.Matrix([0,1,0,0]),sym.Matrix([0,1,0,0,1,1,1,0]),True,"action",i,j,100,0.5)[p_ik])
+#               analysis(sym.Matrix([0,1,0,0]),sym.Matrix([0,1,0,0,1,1,1,0]),True,i,j,j,100,0.5)[p_ik])
 
 #---------------------------------Analysis for list of strategies-----------------------------------------------
 
 
-sweep_analysis(write=True,sample=100,seed=1,
-               donor_obs=True, error="action",
-               q=0.05,epsilon=0.05,N=100,p_ini=0.5)
 #sweep_analysis(write=True,sample=100,seed=1,
-#               donor_obs=True, error="assessment",
-#               q=0.05,epsilon=0.05,N=100,p_ini=0.5)
-sweep_analysis(write=True,sample=100,seed=1,
-               donor_obs=True, error="both",
-               q=0.05,epsilon=0.05,N=100,p_ini=0.5)
+#               donor_obs=False,
+#               q=0.05,eps_a=0.05,eps_e=0.05, N=100,p_ini=0.5)
 
-sweep_analysis(write=True,sample=100,seed=1,
-               donor_obs=False, error="action",
-               q=0.05,epsilon=0.05,N=100,p_ini=0.5)
-#sweep_analysis(write=True,sample=100,seed=1,
-#               donor_obs=False, error="assessment",
-#               q=0.05,epsilon=0.05,N=100,p_ini=0.5)
-sweep_analysis(write=True,sample=100,seed=1,
-               donor_obs=False, error="both",
-               q=0.05,epsilon=0.05,N=100,p_ini=0.5)
-
+sweep_analysis(write=True,sample=0,seed=1,
+               donor_obs=False,
+               q=0.01,eps_a=0,eps_e=0,N=100,p_ini=0.5)
 
 
 
 #---------------------------------------For simulations across a list of strategies-----------------------------------------
-# start_time = time.time()
-# input_file = "analysis-sample=100-seed=1-donor_obs=True-error=action-q=0.05-epsilon=0.05-N=100-p_ini=0.5.csv"
-# sweep_simulations(input_file=input_file, N_gen=250000, N_print=200000, N_simul=5 , write=True)
-# print("Execution time = " + str((time.time() - start_time)/60))
-# input_file = "analysis-sample=100-seed=1-donor_obs=True-error=assessment-q=0.05-epsilon=0.05-N=100-p_ini=0.5.csv"
-# sweep_simulations(input_file=input_file, N_gen=250000, N_print=200000, N_simul=5 , write=True)
-# print("Execution time = " + str((time.time() - start_time)/60))
-# input_file = "analysis-sample=100-seed=1-donor_obs=True-error=both-q=0.05-epsilon=0.05-N=100-p_ini=0.5.csv"
-# sweep_simulations(input_file=input_file, N_gen=250000, N_print=200000, N_simul=5 , write=True)
-# print("Execution time = " + str((time.time() - start_time)/60))
+start_time = time.time()
+
 #
-# input_file = "analysis-sample=100-seed=1-donor_obs=False-error=action-q=0.05-epsilon=0.05-N=100-p_ini=0.5.csv"
-# sweep_simulations(input_file=input_file, N_gen=250000, N_print=200000, N_simul=5 , write=True)
-# print("Execution time = " + str((time.time() - start_time)/60))
+input_file = "analysis-sample=0-seed=1-donor_obs=False-q=0.01-eps_a=0-eps_e=0-N=100-p_ini=0.5.csv"
+sweep_simulations(input_file=input_file, N_gen=150000, N_print=100000, N_simul=1, write=True)
+print("Execution time = " + str((time.time() - start_time)/60))
 # input_file = "analysis-sample=100-seed=1-donor_obs=False-error=assessment-q=0.05-epsilon=0.05-N=100-p_ini=0.5.csv"
-# sweep_simulations(input_file=input_file, N_gen=250000, N_print=200000, N_simul=5 , write=True)
+# #sweep_simulations(input_file=input_file, N_gen=250000, N_print=200000, N_simul=5 , write=True)
 # print("Execution time = " + str((time.time() - start_time)/60))
 # input_file = "analysis-sample=100-seed=1-donor_obs=False-error=both-q=0.05-epsilon=0.05-N=100-p_ini=0.5.csv"
 # sweep_simulations(input_file=input_file, N_gen=250000, N_print=200000, N_simul=5 , write=True)
 # print("Execution time = " + str((time.time() - start_time)/60))
 
+
+
+
+
 #------------------------------------------ESS analysis on list of strategies----------------------------------------------
-input_file = "analysis-sample=0-seed=1-donor_obs=False-error=action-q=0.05-epsilon=0.05-N=100-p_ini=0.5.csv"
-#sweep_ESS_analysis(input_file = input_file,benefit=2,cost=1)
-
-input_file = "analysis-sample=0-seed=1-donor_obs=False-error=assessment-q=0.05-epsilon=0.005-N=100-p_ini=0.5.csv"
-#sweep_ESS_analysis(input_file = input_file,benefit=2,cost=1)
-#sweep_ESS_analysis(input_file = input_file,benefit=5,cost=1)
-
-
+#input_file = "analysis-sample=0-seed=1-donor_obs=False-error=assessment-q=0.05-epsilon=0.001-N=100-p_ini=0.5.csv"
+#sweep_ESS_analysis(input_file = input_file)
+#input_file = "analysis-sample=0-seed=1-donor_obs=False-error=action-q=0.05-epsilon=0.001-N=100-p_ini=0.5.csv"
+#sweep_ESS_analysis(input_file = input_file)
+#print("Execution time = " + str((time.time() - start_time)/60))
+#input_file = "analysis-sample=0-seed=1-donor_obs=False-error=both-q=0.05-epsilon=0.001-N=100-p_ini=0.5.csv"
+#sweep_ESS_analysis(input_file = input_file)
+#print("Execution time = " + str((time.time() - start_time)/60))
 
 
 
@@ -923,54 +947,157 @@ def sweep_rules_equa(write,mirror_image):
 
 #---------------------------------------------Mixed population---------------------------------------------------------
 #To update
-def analysis_mixed(leading_strat,other_strat,f_L,f_noL):
-    proba_C = calculate_proba_C(leading_strat.action_rules)
-    proba_D = calculate_proba_D(leading_strat.action_rules)
-    freq_G_in_observers = calculate_freq_G_in_observers(leading_strat.assessment_rules, proba_C, proba_D)
-    freq_G_in_observers_L_L = freq_G_in_observers.subs([(p_i, p_eq_L),(p_j,p_eq_L)])
-    freq_G_in_observers_L_noL = freq_G_in_observers.subs([(p_i, p_eq_L), (p_j, p_eq_noL)])
-    p_L_recursion_equa = p_eq_L + f_L*q*(f_L*freq_G_in_observers_L_L + f_noL*freq_G_in_observers_L_noL - p_eq_L)
-    p_L_difference_equa = p_L_recursion_equa - p_eq_L
-    print("recursion L",p_L_recursion_equa)
-    print("difference L",p_L_difference_equa)
+def analysis_mixed_with_noL(action_rules,assessment_rules,strat_noL,error,epsilon,f_L,N,variables,p_ini,q):
+    #Get it from analysis or file directly
+    #Be careful, variables need to be in the same order than equations
+    proba_C_L = calculate_proba_C(action_rules)
+    if strat_noL == "AllD":
+        proba_C_noL = 0
+    else:
+        proba_C_noL = 1
+    if error == "action" or error == "both":
+        proba_C_L = (1-epsilon)*proba_C_L + epsilon*(1-proba_C_L)
+        proba_C = (1 - epsilon) * proba_C_noL + epsilon * (1 - proba_C_noL)
 
-    proba_C = calculate_proba_C(AllD.action_rules)
-    proba_D = calculate_proba_D(AllD.action_rules)
-    freq_G_in_observers = calculate_freq_G_in_observers(leading_strat.assessment_rules, proba_C, proba_D)
-    #freq_G_in_observers_noL = freq_G_in_observers.subs([(p_D, p_eq_noL),(p_R,p_eq_noL)])
+    assessment_rules_C = assessment_rules.extract(range(0,4),[0])
+    assessment_rules_D = assessment_rules.extract(range(4, 8),[0])
+    assessment_if_C = calculate_proba_assessment(assessment_rules_C)
+    assessment_if_D = calculate_proba_assessment(assessment_rules_D)
+
+    #
+    freq_G_in_L = assessment_if_C * proba_C_L + \
+                   assessment_if_D * (1 - proba_C_L)
+    freq_G_in_LL = freq_G_in_L.subs([(p_i, p_L),(p_j,p_L)])
+    freq_G_in_LnoL = freq_G_in_L.subs([(p_i, p_L), (p_j, p_noL)])
+    if error == "assessment" or error == "both":
+        freq_G_in_LL = freq_G_in_LL * (1-epsilon) + epsilon * (1-p_L)
+        freq_G_in_LnoL = freq_G_in_LnoL * (1-epsilon) + epsilon * (1-p_L)
+    recursion_equa_p_LL = p_L + 1/N * f_L * q* (f_L * freq_G_in_LL + (1-f_L) * freq_G_in_LnoL - p_L)
+    difference_equa_p_LL = sym.expand(recursion_equa_p_LL - p_L)
+
+    freq_G_in_noL = assessment_if_C * proba_C_noL + \
+                   assessment_if_D * (1 - proba_C_noL)
     #We could just calculate freG and replace p_R by f_L*p_L + f_noL * p_noL?
-    freq_G_in_observers_noL_L = freq_G_in_observers.subs([(p_i, p_eq_noL),(p_j,p_eq_L)])
-    freq_G_in_observers_noL_noL = freq_G_in_observers.subs([(p_i, p_eq_noL), (p_j, p_eq_noL)])
-    #No need for (1-f_L)*q * p_eq_noL because they are not taken in account here. Low number of L means big change
-    p_noL_recursion_equa = p_eq_noL + f_L* q * (f_L*freq_G_in_observers_noL_L + f_noL*freq_G_in_observers_noL_noL - p_eq_noL)
-    p_noL_difference_equa = p_noL_recursion_equa - p_eq_noL
-    print("recursion noL",p_noL_recursion_equa)
-    print("difference noL",p_noL_difference_equa)
+    freq_G_in_noLL = freq_G_in_noL.subs([(p_i, p_noL),(p_j,p_L)])
+    freq_G_in_noLnoL = freq_G_in_noL.subs([(p_i, p_noL), (p_j, p_noL)])
+    if error == "assessment" or error == "both":
+        freq_G_in_noLL = freq_G_in_noLL * (1-epsilon) + epsilon * (1-p_L)
+        freq_G_in_noLnoL = freq_G_in_noLnoL * (1-epsilon) + epsilon * (1-p_L)
+    recursion_equa_p_noL = p_noL + 1/N * f_L * q* (f_L * freq_G_in_noLL + (1-f_L) * freq_G_in_noLnoL - p_noL)
+    difference_equa_p_noL = sym.expand(recursion_equa_p_noL - p_noL)
+
+    difference_equa=[difference_equa_p_LL,difference_equa_p_noL]
+    print(difference_equa)
+
+    # Dynamic analysis
+    res_equation = {"action_rules": "\"" +  "".join(str(elem) for elem in action_rules) + "\"",
+                    "assessment_rules": "\"" + "".join(str(elem) for elem in assessment_rules) + "\"",
+                    "action_rules_matrix": action_rules,
+                    "assessment_rules_matrix": assessment_rules,
+                    "strat_noL": strat_noL,
+                    "difference_equa": difference_equa
+    }
+
+    res_analysis = dynamic_analysis(difference_equa, variables, [p_ini] * len(variables), 0, 1)
+
+    #Fusion the two dictionaries
+    res= {**res_equation, **res_analysis}
+    return(res)
 
 
-    system_equa = [p_L_difference_equa/q,p_noL_difference_equa/q]
-    print(system_equa)
-    eq_points=sym.solve(system_equa,set=True)
-    print(eq_points)
-
-    matrix_recursion_equas = sym.Matrix([p_L_recursion_equa,p_noL_recursion_equa])
-    matrix_variable = sym.Matrix([p_eq_L,p_eq_noL])
-    jacobian_matrix= matrix_recursion_equas.jacobian(matrix_variable)
-
-    for i in eq_points[1]:
-        print("0",i)
-        jacobian_matrix_at_eq=jacobian_matrix.subs([(p_eq_L, i[0]),(p_eq_noL,i[1])])
-        eigenvalues=jacobian_matrix_at_eq.eigenvals(multiple=True)
-        print("equilibrium points", i)
-        for j in eigenvalues:
-            print(sym.sympify(j).subs([(q,0.1)]).evalf())
-
-    #p_D_recursion_equa = p_D + q * (freq_G_in_observers - p_D)
-    #p_D_recursion_equa_at_eq = p_D_recursion_equa.subs([(p_D, p_L_eq), (p_R, p_L_eq)])
-    #difference_equa_at_eq = recursion_equa_at_eq - p_L_eq
 
 
-#analysis_mixed(Leading_five,AllD,0.5,0.5)
+
+def simulation_detailed_mixed_with_noL(action_rules, assessment_rules, strat_noL, error,N, N_L, N_gen, q, epsilon,
+                                       p_ini, N_print, detail):
+    #Initialisation--------------------------------------------------------
+    #Initialise the matrix of reputation
+    M_opinions = np.ones((N,N),dtype=int)
+    for i in range(N):
+        for j in range(N):
+            if random.random() > p_ini:
+                M_opinions[i,j] = 0
+    #Initialise the table of results
+    p_L_by_gen = np.zeros((N_gen-N_print, N_L))
+    p_noL_by_gen = np.zeros((N_gen - N_print, N-N_L))
+    cooperation_by_gen = np.zeros(N_gen-N_print)
+    #Reshape the matrix as explained at the beginning of the code
+    action_rules_simul = np.flip(action_rules)
+    assessment_rules_simul = np.reshape(np.flip(assessment_rules),(2,2,2))
+    #Start simulation-----------------------------------------------------
+    for i in range(N_gen):
+        #Choose randomly donor and recipient
+        actors = np.random.choice(N, 2, replace=False)
+        donor = actors[0]
+        recipient = actors[1]
+        #Choose donor action as a function of their action rules and the reputations of donor and recipient
+        if donor < N_L:
+            donor_action = action_rules_simul[M_opinions[donor,recipient]]
+        else:
+            if strat_noL == "AllD":
+                donor_action = 0
+            else:
+                donor_action = 1
+        if error == "action" or error == "both":
+            if random.random() < epsilon:
+                donor_action = 1-donor_action
+        #Writing action
+        if i >= N_print:
+            cooperation_by_gen[i-N_print] = donor_action
+        #Opinion update
+        for j in range(N_L):
+            #If donor don't update their opinions
+            if j == donor:
+                continue
+            #Update opinion with some probability as a function of assessment rules and the action of the donor
+            if random.random() < q:
+                if error == "assessment" or error == "both":
+                    if random.random() < epsilon:
+                        M_opinions[j, donor] = 1 - M_opinions[j, donor]
+                    else:
+                        M_opinions[j,donor] = assessment_rules_simul[donor_action,M_opinions[j,donor],M_opinions[j,recipient]]
+                else:
+                    M_opinions[j, donor] = assessment_rules_simul[donor_action, M_opinions[j, donor], M_opinions[j, recipient]]
+
+        #Write the reputations
+        if i >= N_print:
+            p_L_by_gen[i-N_print, :] = M_opinions[:N_L, :N_L].mean(axis=0) - M_opinions[:N_L, :N_L].diagonal() / N
+            p_noL_by_gen[i-N_print, :] = M_opinions[:N_L, N_L:N].mean(axis=0)
+
+    #Level of detail determinate the output (either by generation or mean across reputation)
+    if detail == 1:
+            res = {"p_L_by_gen": p_L_by_gen, "p_noL_by_gen": p_noL_by_gen, "cooperation_by_gen": cooperation_by_gen}
+    if detail == 0:
+            res = {"p_L": p_L_by_gen[:, :].mean(), "sd_p_L": p_L_by_gen[:, :].std(),
+                   "p_noL": p_noL_by_gen[:, :].mean(), "sd_p_noL": p_noL_by_gen[:, :].std(),
+                   "cooperation": cooperation_by_gen[:].mean(),"std_cooperation": cooperation_by_gen[:].std()}
+    return(res)
+
+
+
+#print(analysis_mixed_with_noL(sym.Matrix([1,0]),sym.Matrix([1,0,1,0,0,0,0,1]),"AllD","assessment",0.01,0.02,100,[p_L,p_noL],0.5,0.1))
+#print(simulation_detailed_mixed_with_noL(action_rules = np.array([1,0]),assessment_rules=np.array([1,0,1,0,0,0,0,1]),
+#                                         strat_noL="AllD",error="assessment",N=100,N_L=2,N_gen=500000,q=1,epsilon=0.01,
+#                                         p_ini=0.5,N_print=50000,detail=0)["p_L"])
+#p_L_sum = 0
+#for i in range(20):
+#    p_L_sum = p_L_sum + simulation_detailed_mixed_with_noL(action_rules = np.array([1,0]),assessment_rules=np.array([1,0,1,0,0,0,0,1]),
+#                                         strat_noL="AllD",error="assessment",N=100,N_L=2,N_gen=500000,q=1,epsilon=0.01,
+#                                         p_ini=0.16,N_print=50000,detail=0)["p_L"]
+#    print(i)
+#print(p_L_sum/20)
+
+#CONCLUSION SO FAR, no? if the number of individuals of one strat is too low, the predictions are off.
+#         print(simulation_detailed(N=100,N_gen=800000,q=i,epsilon=j,p_ini=0.5,
+#             action_rules = np.array([0,1,0,0]),assessment_rules=np.array([0,1,0,0,1,1,1,0]),donor_obs=True,plot=False,error="action",detail=0,N_print=400000)["p_ik"]-
+#               analysis(sym.Matrix([0,1,0,0]),sym.Matrix([0,1,0,0,1,1,1,0]),True,"action",i,j,100,0.5)[p_ik])
+
+
+
+
+
+
+
 
 
 
@@ -1123,3 +1250,81 @@ def simulation_mixed_detailed(N,N_Leading,N_gen,q,epsilon,p_t0,strat_leading,str
 # axes = plt.gca()
 # axes.set_ylim([0, 1])
 # plt.show()
+
+
+p_uu = sym.Symbol('p_uu')
+p_uv = sym.Symbol('p_uv')
+p_vu = sym.Symbol('p_vu')
+p_vv = sym.Symbol('p_vv')
+
+def analysis_mixed(action_rules_u, assessment_rules_u, action_rules_v, assessment_rules_v, x):
+    proba_C_u = calculate_proba_C(action_rules_u)
+    proba_C_v = calculate_proba_C(action_rules_v)
+
+    assessment_rules_C_u = assessment_rules_u.extract(range(0,4),[0])
+    assessment_rules_D_u = assessment_rules_u.extract(range(4, 8),[0])
+    assessment_if_C_u = calculate_proba_assessment(assessment_rules_C_u)
+    assessment_if_D_u = calculate_proba_assessment(assessment_rules_D_u)
+
+    assessment_rules_C_v = assessment_rules_v.extract(range(0,4),[0])
+    assessment_rules_D_v = assessment_rules_v.extract(range(4, 8),[0])
+    assessment_if_C_v = calculate_proba_assessment(assessment_rules_C_v)
+    assessment_if_D_v = calculate_proba_assessment(assessment_rules_D_v)
+
+    freq_G_in_uu = x*(assessment_if_C_u.subs([(p_i, p_uu), (p_j, p_uu)]) * proba_C_u.subs(p_j,p_uu) + \
+                    assessment_if_D_u.subs([(p_i, p_uu), (p_j, p_uu)]) * (1 - proba_C_u.subs(p_j,p_uu))) + \
+                   (1-x)*(assessment_if_C_u.subs([(p_i, p_uu), (p_j, p_vu)]) * proba_C_u.subs(p_j, p_vu) + \
+                   assessment_if_D_u.subs([(p_i, p_uu), (p_j, p_vu)]) * (1 - proba_C_u.subs(p_j, p_vu)))
+    freq_G_in_uv = x*(assessment_if_C_v.subs([(p_i, p_uv), (p_j, p_uv)]) * proba_C_u.subs(p_j,p_uu) + \
+                    assessment_if_D_v.subs([(p_i, p_uv), (p_j, p_uv)]) * (1 - proba_C_u.subs(p_j,p_uu))) + \
+                   (1-x)*(assessment_if_C_v.subs([(p_i, p_uv), (p_j, p_vv)]) * proba_C_u.subs(p_j, p_vu) + \
+                   assessment_if_D_v.subs([(p_i, p_uv), (p_j, p_vv)]) * (1 - proba_C_u.subs(p_j, p_vu)))
+    freq_G_in_vu = x*(assessment_if_C_u.subs([(p_i, p_vu), (p_j, p_uu)]) * proba_C_v.subs(p_j,p_uv) + \
+                    assessment_if_D_u.subs([(p_i, p_vu), (p_j, p_uu)]) * (1 - proba_C_v.subs(p_j,p_uv))) + \
+                   (1-x)*(assessment_if_C_u.subs([(p_i, p_vu), (p_j, p_vu)]) * proba_C_v.subs(p_j, p_vv) + \
+                   assessment_if_D_u.subs([(p_i, p_vu), (p_j, p_vu)]) * (1 - proba_C_v.subs(p_j, p_vv)))
+    freq_G_in_vv = x*(assessment_if_C_v.subs([(p_i, p_vv), (p_j, p_uv)]) * proba_C_v.subs(p_j,p_uv) + \
+                    assessment_if_D_v.subs([(p_i, p_vv), (p_j, p_uv)]) * (1 - proba_C_v.subs(p_j,p_uv))) + \
+                   (1-x)*(assessment_if_C_v.subs([(p_i, p_vv), (p_j, p_vv)]) * proba_C_v.subs(p_j, p_vv) + \
+                   assessment_if_D_v.subs([(p_i, p_vv), (p_j, p_vv)]) * (1 - proba_C_v.subs(p_j, p_vv)))
+    system_equa=(sym.expand(freq_G_in_uu),sym.expand(freq_G_in_uv),sym.expand(freq_G_in_vu),sym.expand(freq_G_in_vv))
+
+    print(system_equa)
+    print(sym.nonlinsolve(system_equa,(p_uu,p_uv,p_vu,p_vv)))
+    #print(sym.solve(system_equa,manual=True))
+
+    #
+    #
+    # #We could solve this one directly
+    # freq_G_in_rm = assessment_if_C_m * proba_C_r.subs(p_j,p_rr) + \
+    #                assessment_if_D_m * (1 - proba_C_r.subs(p_j,p_rr))
+    # if error == "assessment" or error == "both":
+    #     freq_G_in_rm = freq_G_in_rm * (1-epsilon) + epsilon * (1-p_i)
+    # freq_G_in_rm = freq_G_in_rm.subs([(p_i, p_rm), (p_j, p_rm)])
+    # recursion_equa_p_rm = p_rm + q * (freq_G_in_rm - p_rm)
+    # difference_equa_p_rm = recursion_equa_p_rm - p_rm
+    # analysis_p_rm = dynamic_analysis([difference_equa_p_rm], [p_rm], [p_ini], 0, 1)
+    #
+    #
+    # # Calcul of equation of resident on mutant p_mr
+    # freq_G_in_mr = assessment_if_C_r * proba_C_m.subs(p_j,analysis_p_rm[p_rm]) + \
+    #                assessment_if_D_r * (1 - proba_C_m.subs(p_j,analysis_p_rm[p_rm]))
+    #
+    # if error == "assessment" or error == "both":
+    #     freq_G_in_mr = freq_G_in_mr * (1-epsilon) + epsilon * (1-p_i)
+    #
+    # freq_G_in_mr = freq_G_in_mr.subs([(p_i, p_mr), (p_j, p_rr)])
+    # recursion_equa_p_mr = p_mr + q * (freq_G_in_mr - p_mr)
+    # difference_equa_p_mr = recursion_equa_p_mr - p_mr
+    # analysis_p_mr = dynamic_analysis([difference_equa_p_mr], [p_mr], [p_ini], 0, 1)
+    #
+    #
+    # #analysis = dynamic_analysis(difference_equa, variables, [p_ini] * len(variables), 0, 1)
+    # #Fitness is the proportion of cooperation toward an individual
+    # proba_C_mr = proba_C_r.subs(p_j,analysis_p_mr[p_mr])
+    # proba_C_rm = proba_C_m.subs(p_j,analysis_p_rm[p_rm])
+    # proba_C_rr = proba_C_r.subs(p_j, p_rr)
+    # fitness_m = b *proba_C_mr - c *proba_C_rm
+    # fitness_r = b *proba_C_rr - c * proba_C_rr
+
+#analysis_mixed(sym.Matrix([1,0]),sym.Matrix([1,1,0,1,1,0,1,0]),sym.Matrix([1,0]),sym.Matrix([0,1,1,1,1,1,1,0]),0.3)

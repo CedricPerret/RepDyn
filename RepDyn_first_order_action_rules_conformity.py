@@ -226,7 +226,7 @@ def dynamic_analysis_continuous_time(differential_equa, variables, variables_ini
     return(res)
 
 #Analysis of a given strategy
-def analysis(action_rules,assessment_rules, eps_a,eps_e, p_ini,plot):
+def analysis(action_rules,assessment_rules, eps_a,eps_e, p_ini,conformity,plot):
     assessment_rules_C = assessment_rules.extract(range(0,4),[0])
     assessment_rules_D = assessment_rules.extract(range(4, 8),[0])
     # To facilitate solving
@@ -240,7 +240,8 @@ def analysis(action_rules,assessment_rules, eps_a,eps_e, p_ini,plot):
                        assessment_if_D * (1 - proba_C)
     proba_o = eps_a + (1 - 2 * eps_a) * proba_o_no_error
 
-    differential_equa = proba_o - p_ik
+    #differential_equa = proba_o - p_ik
+    differential_equa = (proba_o - p_ik)*(1-conformity) + conformity * (p_ik**2 - (1-p_ik)**2)
 
     differential_equa = sym.expand(differential_equa.subs([(p_i,p_ik),(p_j,p_ik)]))
 
@@ -272,7 +273,7 @@ def analysis(action_rules,assessment_rules, eps_a,eps_e, p_ini,plot):
     return(res)
 
 #Analysis for a list of strategies
-def sweep_analysis(write,sample,seed, eps_a,eps_e, p_ini):
+def sweep_analysis(write,sample,seed, eps_a,eps_e, p_ini,conformity):
     #Get parameters of the function and put it in the name file
     if write == True:
         frame = inspect.currentframe()
@@ -286,7 +287,7 @@ def sweep_analysis(write,sample,seed, eps_a,eps_e, p_ini):
     for i, rule in enumerate(possible_rules):
             action_rules = sym.Matrix(rule[0])
             assessment_rules = sym.Matrix(rule[1])
-            res = analysis(action_rules,assessment_rules, eps_a, eps_e,  p_ini,False)
+            res = analysis(action_rules,assessment_rules, eps_a, eps_e,  p_ini,conformity,False)
             list_res.append(res)
             if i%20 == 0:
                 print("Computing equations: ",i / (len(possible_rules)))
@@ -398,7 +399,7 @@ def sweep_simulations(input_file,  N, N_o, N_gen, N_print, N_simul, write):
     return(dt_res)
 
 #---------------------------------------------Evolutionary dynamics---------------------------------------------------
-def ESS_analysis(action_rules_r,assessment_rules_r,p_rr,action_rules_m, assessment_rules_m,eps_a,eps_e,p_ini):
+def ESS_analysis(action_rules_r,assessment_rules_r,p_rr,action_rules_m, assessment_rules_m,eps_a,eps_e,p_ini,conformity):
     #Get it from analysis or file directly
     #Be careful, variables need to be in the same order than equations
     proba_C_m = calculate_proba_C(action_rules_m)
@@ -422,7 +423,8 @@ def ESS_analysis(action_rules_r,assessment_rules_r,p_rr,action_rules_m, assessme
                    assessment_if_D_m * (1 - proba_C_r.subs(p_j,p_rr))
     proba_o_rm = eps_a + (1 - 2 * eps_a) * proba_o_no_error_rm
     proba_o_rm = proba_o_rm.subs([(p_i, p_rm), (p_j, p_rm)])
-    differential_equa_rm = proba_o_rm - p_rm
+    #differential_equa_rm = proba_o_rm - p_rm
+    differential_equa_rm = (proba_o_rm - p_rm) * (1 - conformity) + conformity * (p_rr ** 2 - (1 - p_rr) ** 2)
 
     analysis_p_rm = dynamic_analysis_continuous_time([differential_equa_rm], [p_rm], [p_ini], 0, 1)
 
@@ -431,7 +433,8 @@ def ESS_analysis(action_rules_r,assessment_rules_r,p_rr,action_rules_m, assessme
                    assessment_if_D_r * (1 - proba_C_m.subs(p_j,analysis_p_rm[p_rm]))
     proba_o_mr = eps_a + (1 - 2 * eps_a) * proba_o_no_error_mr
     proba_o_mr = proba_o_mr.subs([(p_i, p_mr), (p_j, p_rr)])
-    differential_equa_mr = proba_o_mr - p_mr
+    #differential_equa_mr = proba_o_mr - p_mr
+    differential_equa_mr = (proba_o_mr - p_mr) * (1 - conformity) + conformity * (p_rr ** 2 - (1 - p_rr) ** 2)
     analysis_p_mr = dynamic_analysis_continuous_time([differential_equa_mr], [p_mr], [p_ini], 0, 1)
 
     #analysis = dynamic_analysis(difference_equa, variables, [p_ini] * len(variables), 0, 1)
@@ -473,7 +476,7 @@ def sweep_ESS_analysis(input_file):
                                action_rules_m = parse_expr(row_m["action_rules_matrix"]),
                                assessment_rules_m= parse_expr(row_m["assessment_rules_matrix"]),
                                eps_a = parameters_input_file["eps_a"],eps_e = parameters_input_file["eps_e"],
-                               p_ini = parameters_input_file["p_ini"])
+                               p_ini = parameters_input_file["p_ini"],conformity = parameters_input_file["conformity"])
             list_res.append(res)
         print(index_r/len(dt_analytic.index))
     dt = pd.DataFrame.from_dict(list_res)
@@ -584,6 +587,7 @@ def simulation_ESS(action_rules_r, assessment_rules_r,action_rules_m, assessment
 #              eps_a=0.05,
 #              eps_e=0.05,
 #              p_ini=0.1,
+#             conformity=0.1,
 #              plot=True))
 
 # simulation_detailed(action_rules=np.array([1,0]), assessment_rules=np.array([1,1,1,0,0,0,1,0]),
@@ -652,36 +656,29 @@ def simulation_ESS(action_rules_r, assessment_rules_r,action_rules_m, assessment
 #---------------------------------------For simulations across a list of strategies-----------------------------------------
 start_time = time.time()
 
-input_file = "analysis-sample=0-seed=1-eps_a=0.0-eps_e=0.0-p_ini=0.1.csv"
-sweep_simulations(input_file=input_file, N = 100,N_o = 1, N_gen=500000, N_print=400000, N_simul=5, write=True)
-print("Execution time = " + str((time.time() - start_time)/60))
-input_file = "analysis-sample=0-seed=1-eps_a=0.0-eps_e=0.0-p_ini=0.5.csv"
-sweep_simulations(input_file=input_file, N = 100,N_o = 1, N_gen=500000, N_print=400000, N_simul=5, write=True)
-print("Execution time = " + str((time.time() - start_time)/60))
-input_file = "analysis-sample=0-seed=1-eps_a=0.0-eps_e=0.0-p_ini=0.9.csv"
-sweep_simulations(input_file=input_file, N = 100,N_o = 1, N_gen=500000, N_print=400000, N_simul=5, write=True)
-print("Execution time = " + str((time.time() - start_time)/60))
-
 input_file = "analysis-sample=0-seed=1-eps_a=0.05-eps_e=0.05-p_ini=0.1.csv"
-sweep_simulations(input_file=input_file, N = 100,N_o = 1, N_gen=500000, N_print=400000, N_simul=5, write=True)
+#sweep_simulations(input_file=input_file, N = 100,N_o = 1, N_gen=500000, N_print=400000, N_simul=5, write=True)
+#sweep_ESS_analysis(input_file = input_file)
 print("Execution time = " + str((time.time() - start_time)/60))
 input_file = "analysis-sample=0-seed=1-eps_a=0.05-eps_e=0.05-p_ini=0.5.csv"
-sweep_simulations(input_file=input_file, N = 100,N_o = 1, N_gen=500000, N_print=400000, N_simul=5, write=True)
+#sweep_simulations(input_file=input_file, N = 100,N_o = 1, N_gen=500000, N_print=400000, N_simul=5, write=True)
+#sweep_ESS_analysis(input_file = input_file)
 print("Execution time = " + str((time.time() - start_time)/60))
 input_file = "analysis-sample=0-seed=1-eps_a=0.05-eps_e=0.05-p_ini=0.9.csv"
-sweep_simulations(input_file=input_file, N = 100,N_o = 1, N_gen=500000, N_print=400000, N_simul=5, write=True)
+#sweep_simulations(input_file=input_file, N = 100,N_o = 1, N_gen=500000, N_print=400000, N_simul=5, write=True)
+#sweep_ESS_analysis(input_file = input_file)
 print("Execution time = " + str((time.time() - start_time)/60))
 
 
 #------------------------------------------ESS analysis on list of strategies----------------------------------------------
-input_file = "analysis-sample=0-seed=1-eps_a=0.05-eps_e=0.05-p_ini=0.9.csv"
+input_file = "analysis-sample=0-seed=1-eps_a=0.05-eps_e=0.05-p_ini=0.9-conformity=0.05.csv"
 #sweep_ESS_analysis(input_file = input_file)
 print("Execution time = " + str((time.time() - start_time)/60))
 
-input_file = "analysis-sample=0-seed=1-eps_a=0.05-eps_e=0.05-p_ini=0.9.csv"
+input_file = "analysis-sample=0-seed=1-eps_a=0.05-eps_e=0.05-p_ini=0.9-conformity=0.1.csv"
 #sweep_ESS_analysis(input_file = input_file)
 print("Execution time = " + str((time.time() - start_time)/60))
 
-input_file = "analysis-sample=0-seed=1-eps_a=0.05-eps_e=0.05-p_ini=0.9.csv"
+input_file = "analysis-sample=0-seed=1-eps_a=0.05-eps_e=0.05-p_ini=0.9-conformity=0.2.csv"
 #sweep_ESS_analysis(input_file = input_file)
 print("Execution time = " + str((time.time() - start_time)/60))
