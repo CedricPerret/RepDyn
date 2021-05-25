@@ -8,6 +8,9 @@ import inspect
 import itertools
 import time
 import pandas as pd
+import multiprocessing as mp
+from joblib import Parallel, delayed
+
 
 #-------------------------------------------List of symbols------------------------------------------------
 #Reputations
@@ -320,11 +323,11 @@ def simulation_detailed(action_rules, assessment_rules,  N, N_o,  eps_a,eps_e, p
     for i in range(N_gen):
         #Choose randomly donor and recipient
         actors = np.random.choice(N, 2+N_o, replace=False)
-        donor = actors[0]
-        recipient = actors[1]
-        observers = actors[2:]
+        #donor = actors[0]
+        #recipient = actors[1]
+        #observers = actors[2:]
         #Choose donor action as a function of their action rules and the reputations of donor and recipient
-        donor_action = action_rules_simul[M_opinions[donor,recipient]]
+        donor_action = action_rules_simul[M_opinions[actors[0],actors[1]]]
         #Execution errors
         if random.random() < eps_e:
             donor_action = 1-donor_action
@@ -333,11 +336,11 @@ def simulation_detailed(action_rules, assessment_rules,  N, N_o,  eps_a,eps_e, p
             cooperation_by_gen[i-N_print] = donor_action
 
         #Opinion update
-        for j in observers:
+        for j in actors[2:]:
             #Update opinion with some probability as a function of assessment rules and the action of the donor
-            M_opinions[j, donor] = assessment_rules_simul[donor_action, M_opinions[j, donor], M_opinions[j, recipient]]
+            M_opinions[j, actors[0]] = assessment_rules_simul[donor_action, M_opinions[j, actors[0]], M_opinions[j, actors[1]]]
             if random.random() < eps_a:
-                M_opinions[j, donor] = 1 - M_opinions[j, donor]
+                M_opinions[j, actors[0]] = 1 - M_opinions[j, actors[0]]
 
         #Write the reputations
         if i >= N_print:
@@ -374,28 +377,35 @@ def simulations_detailed_replicated(action_rules, assessment_rules,  N, N_o, eps
 
 #Simulations for list of strategies
 def sweep_simulations(input_file,  N, N_o, N_gen, N_print, N_simul, write):
-    #Read a file with analytical result and get the parameters from it
-    dt_analytic = pd.read_csv(input_file)
-    parameters_input_file=read_parameters(input_file)
-    list_res=[]
-    #Simulations for each strategies
-    for index, row in dt_analytic.iterrows():
-        simulations = simulations_detailed_replicated(action_rules=np.array([int(i) for i in row["action_rules"].replace("\"", "")]),
-                                                      assessment_rules=np.array([int(i) for i in row["assessment_rules"].replace("\"", "")]),
-                                                      N = N, N_o =  N_o,
-                                                      eps_a=parameters_input_file["eps_a"], eps_e= parameters_input_file["eps_e"], p_ini=parameters_input_file["p_ini"],
-                                                      N_gen=N_gen,N_print=N_print,N_simul=N_simul)
+        #Read a file with analytical result and get the parameters from it
+        dt_analytic = pd.read_csv(input_file)
+        parameters_input_file=read_parameters(input_file)
+        list_res=[]
+        #Simulations for each strategies
+        #pool = mp.Pool(7)
+        for index, row in dt_analytic.iterrows():
+            #list_res.append(pool.apply(simulations_detailed_replicated, args=(np.array([int(i) for i in row["action_rules"].replace("\"", "")]),
+            #                                              np.array([int(i) for i in row["assessment_rules"].replace("\"", "")]),
+            #                                               N,   N_o,
+            #                                              parameters_input_file["eps_a"],  parameters_input_file["eps_e"],parameters_input_file["p_ini"],
+            #                                              N_gen,N_print,N_simul)))
+            simulations = simulations_detailed_replicated(action_rules=np.array([int(i) for i in row["action_rules"].replace("\"", "")]),
+                                                          assessment_rules=np.array([int(i) for i in row["assessment_rules"].replace("\"", "")]),
+                                                          N = N, N_o =  N_o,
+                                                          eps_a=parameters_input_file["eps_a"], eps_e= parameters_input_file["eps_e"], p_ini=parameters_input_file["p_ini"],
+                                                          N_gen=N_gen,N_print=N_print,N_simul=N_simul)
 
-        simulations.update({"diff_p_ik": np.abs(row["p_ik"] - simulations["mean_simul_p_ik"])})
-        simulations.update({"diff_coop": np.abs(row["cooperation"] - simulations["mean_simul_cooperation"])})
-        list_res.append(simulations)
-        print(index / len(dt_analytic.index))
-    dt_simul=pd.DataFrame.from_dict(list_res)
-    dt_res = pd.concat((dt_analytic,dt_simul),axis=1)
-    if write == True:
-        name_file = "simul-" + parameters_to_string(parameters_input_file,[]) + "-gen=" + str(N_gen/1000) + "k" + "-print=" + str(N_print/1000) + "k" + "-S=" + str(N_simul) + ".csv"
-        dt_res.to_csv(name_file,index=False)
-    return(dt_res)
+            simulations.update({"diff_p_ik": np.abs(row["p_ik"] - simulations["mean_simul_p_ik"])})
+            simulations.update({"diff_coop": np.abs(row["cooperation"] - simulations["mean_simul_cooperation"])})
+            list_res.append(simulations)
+            print(index / len(dt_analytic.index))
+        #pool.close()
+        dt_simul=pd.DataFrame.from_dict(list_res)
+        dt_res = pd.concat((dt_analytic,dt_simul),axis=1)
+        if write == True:
+            name_file = "simul-" + parameters_to_string(parameters_input_file,[]) + "-gen=" + str(N_gen/1000) + "k" + "-print=" + str(N_print/1000) + "k" + "-S=" + str(N_simul) + ".csv"
+            dt_res.to_csv(name_file,index=False)
+        return(dt_res)
 
 #---------------------------------------------Evolutionary dynamics---------------------------------------------------
 def ESS_analysis(action_rules_r,assessment_rules_r,p_rr,action_rules_m, assessment_rules_m,eps_a,eps_e,p_ini):
@@ -651,25 +661,25 @@ def simulation_ESS(action_rules_r, assessment_rules_r,action_rules_m, assessment
 
 #---------------------------------------For simulations across a list of strategies-----------------------------------------
 start_time = time.time()
-
+print(str(start_time))
 input_file = "analysis-sample=0-seed=1-eps_a=0.0-eps_e=0.0-p_ini=0.1.csv"
-sweep_simulations(input_file=input_file, N = 100,N_o = 1, N_gen=500000, N_print=400000, N_simul=5, write=True)
+#sweep_simulations(input_file=input_file, N = 100,N_o = 1, N_gen=500000, N_print=400000, N_simul=30, write=True)
 print("Execution time = " + str((time.time() - start_time)/60))
 input_file = "analysis-sample=0-seed=1-eps_a=0.0-eps_e=0.0-p_ini=0.5.csv"
-sweep_simulations(input_file=input_file, N = 100,N_o = 1, N_gen=500000, N_print=400000, N_simul=5, write=True)
+#sweep_simulations(input_file=input_file, N = 100,N_o = 1, N_gen=500000, N_print=400000, N_simul=30, write=True)
 print("Execution time = " + str((time.time() - start_time)/60))
 input_file = "analysis-sample=0-seed=1-eps_a=0.0-eps_e=0.0-p_ini=0.9.csv"
-sweep_simulations(input_file=input_file, N = 100,N_o = 1, N_gen=500000, N_print=400000, N_simul=5, write=True)
+#sweep_simulations(input_file=input_file, N = 100,N_o = 1, N_gen=500000, N_print=400000, N_simul=30, write=True)
 print("Execution time = " + str((time.time() - start_time)/60))
 
 input_file = "analysis-sample=0-seed=1-eps_a=0.05-eps_e=0.05-p_ini=0.1.csv"
-sweep_simulations(input_file=input_file, N = 100,N_o = 1, N_gen=500000, N_print=400000, N_simul=5, write=True)
+#sweep_simulations(input_file=input_file, N = 100,N_o = 1, N_gen=500000, N_print=400000, N_simul=30, write=True)
 print("Execution time = " + str((time.time() - start_time)/60))
 input_file = "analysis-sample=0-seed=1-eps_a=0.05-eps_e=0.05-p_ini=0.5.csv"
-sweep_simulations(input_file=input_file, N = 100,N_o = 1, N_gen=500000, N_print=400000, N_simul=5, write=True)
+sweep_simulations(input_file=input_file, N = 100,N_o = 1, N_gen=500000, N_print=400000, N_simul=30, write=True)
 print("Execution time = " + str((time.time() - start_time)/60))
 input_file = "analysis-sample=0-seed=1-eps_a=0.05-eps_e=0.05-p_ini=0.9.csv"
-sweep_simulations(input_file=input_file, N = 100,N_o = 1, N_gen=500000, N_print=400000, N_simul=5, write=True)
+#sweep_simulations(input_file=input_file, N = 100,N_o = 1, N_gen=500000, N_print=400000, N_simul=30, write=True)
 print("Execution time = " + str((time.time() - start_time)/60))
 
 
